@@ -1,0 +1,116 @@
+# =========================
+# Colored Menu + Breadcrumb UI
+# =========================
+
+$CurrentPage = "Main"
+$Running = $true
+
+function Show-Breadcrumb {
+    param ($Path)
+
+    Write-Host ""
+    Write-Host (" " + ($Path -join " > ")) -ForegroundColor DarkGray
+    Write-Host ("=" * 50) -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+function Show-MenuOption {
+    param ($Key, $Text)
+
+    Write-Host ("[" + $Key + "] ") -NoNewline -ForegroundColor Cyan
+    Write-Host $Text -ForegroundColor White
+}
+
+while ($Running) {
+    Clear-Host
+
+    switch ($CurrentPage) {
+
+        "Main" {
+            Show-Breadcrumb @("Main Menu")
+
+            Write-Host "Select any of the below options to begin.`n" -ForegroundColor Yellow
+
+            Show-MenuOption 1 "Registry QOL Changes"
+            Show-MenuOption 2 "Registry shortcuts"
+            Show-MenuOption 3 "Windows password configuration"
+            Show-MenuOption 0 "Exit"
+
+            $choice = Read-Host "`nSelection"
+
+            switch ($choice) {
+                "1" { $CurrentPage = "RegistryQOL" }
+                "2" { $CurrentPage = "RegistryShortcuts" }
+                "3" { $CurrentPage = "PasswordConfig" }
+                "0" { $Running = $false }
+            }
+        }
+
+        "RegistryQOL" {
+            Show-Breadcrumb @("Main Menu", "Registry QOL Changes")
+
+            Write-Host "Registry QOL changes page (placeholder)`n" -ForegroundColor Yellow
+            Show-MenuOption 0 "Return"
+
+            if ((Read-Host "`nSelection") -eq "0") {
+                $CurrentPage = "Main"
+            }
+        }
+
+        "RegistryShortcuts" {
+            Show-Breadcrumb @("Main Menu", "Registry Shortcuts")
+
+            Write-Host "Registry shortcuts page (placeholder)`n" -ForegroundColor Yellow
+            Show-MenuOption 0 "Return"
+
+            if ((Read-Host "`nSelection") -eq "0") {
+                $CurrentPage = "Main"
+            }
+        }
+
+        "PasswordConfig" {
+            Show-Breadcrumb @("Main Menu", "Windows password configuration")
+
+            Show-MenuOption 1 "Change minimum password age (days)"
+            Show-MenuOption 2 "Change maximum password age (days)"
+            Show-MenuOption 3 "Change minimum password length"
+            Show-MenuOption 4 "Change lockout threshold"
+            Show-MenuOption 5 "Change lockout duration (minutes)"
+            Show-MenuOption 0 "Return"
+
+            $choice = Read-Host "`nSelection"
+
+            switch ($choice) {
+                "1" { $CurrentPage = "MinPasswordAge" }
+                "2" { $CurrentPage = "MaxPasswordAge" }
+                "3" { $CurrentPage = "MinPasswordLength" }
+                "4" { $CurrentPage = "LockoutThreshold" }
+                "5" { $CurrentPage = "LockoutDuration" }
+                "0" { $CurrentPage = "Main" }
+            }
+        }
+
+        "MaxPasswordAge" {
+            Show-Breadcrumb @(
+                "Main Menu",
+                "Windows password configuration",
+                "Maximum password age"
+            )
+
+            Write-Host "What value in days, should the maximum password age be set to?" -ForegroundColor Yellow
+            Write-Host "Press Enter to confirm and apply the value.`n" -ForegroundColor DarkGray
+
+            $value = Read-Host "Days"
+
+            Write-Host "`nValue entered: $value" -ForegroundColor Green
+            Write-Host "`nPress Enter to return..." -ForegroundColor DarkGray
+            Read-Host | Out-Null
+
+            $CurrentPage = "PasswordConfig"
+        }
+
+        default {
+            $CurrentPage = "Main"
+        }
+    }
+}

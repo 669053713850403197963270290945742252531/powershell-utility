@@ -1,0 +1,42 @@
+- Instead of making options such as "Disable [option]" and "Enable [option]", just name the options "Toggle [option]" and introduce a new option menu that displays 2 options: 
+    - press 1 to enable, press 2 to disable and format it just like the other option lists (such as Main Menu > Registry QoL Changes)
+
+- add more option to ALL lists and create more tabs but dont add any functions to the options yet because still testing design. new tabs and options COULD include things like tweaks such as the windows 10 right click, or other windows 10 or general tweaks (this is a Windows 11 PowerShell utility) some examples:
+    - REGISTRY QOL:
+
+        - Password must meet complexity requirements policy
+        - Disable Sticky Keys prompt
+        - Disable Windows Copilot
+        - Disable telemetry
+        - Disable web search in Start menu
+        - Disable Bing search in Start menu
+        - Disable Windows tips & suggestions
+        - Uninstall Windows Program
+
+    - RegistryShortcuts
+
+        - Add 'Open Command Prompt here
+        - Add 'Restart Explorer
+        - Add God Mode shortcut
+        - Add 'Restart Audio Service'
+        - Add 'Empty Recycle Bin'
+- fix this script not being able to be ran from the file directly from file explorer when clicking "Run with PowerShell"? it requires to be ran with a separate .cmd script:
+```ps
+@echo off
+title Windows Config Tool
+powershell.exe -NoExit -ExecutionPolicy Bypass -File "%~dp0Windows Utility.ps1"
+pause
+```
+- 4 warnings from the Error Lens in the utility:
+    - 46: The cmdlet 'Pause-AnyKey' uses an unapproved verb.
+    - 52: The cmdlet 'Draw-Header' uses an unapproved verb.
+    - 93: The Variable 'input' is an automatic variable that is built into PowerShell, assigning to it might have undesired side effects. If assignment is not by design, please use a different name.
+    - 319: The Variable 'input' is an automatic variable that is built into PowerShell, assigning to it might have undesired side effects. If assignment is not by design, please use a different name.
+    
+option to:
+- create restore point using Windows Built-In System Restore Point
+- run advanced corruption diagnosis and automatically repair corrupted files (for issues such as gray screen when logging in)
+    - use the command: sfc /scannow (repaires administrator/elevation)
+- disable/enable snipping tool
+- restart graphics driver (just like: Win + Ctrl + Shift + B)
+- restart windows update (reqires adminstrator/elevation)
