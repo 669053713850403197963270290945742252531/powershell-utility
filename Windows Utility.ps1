@@ -9,14 +9,11 @@ param(
 # SELF-RELAUNCH FOR "RUN WITH POWERSHELL" / DOUBLE-CLICK
 # =========================
 if (-not $Relaunched -and $PSCommandPath) {
-    $argList = @(
-        '-NoLogo'
-        '-NoExit'
-        '-ExecutionPolicy', 'Bypass'
-        '-File', "`"$PSCommandPath`""
-        '-Relaunched'
-    )
-    Start-Process -FilePath 'powershell.exe' -ArgumentList $argList
+    # Built as a single pre-formed string (not an array) so PowerShell
+    # doesn't try to re-quote an already-quoted element, which can cancel
+    # the quoting out and split a spaced path into two arguments.
+    $argString = '-NoLogo -NoExit -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Relaunched'
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argString
     exit
 }
 
@@ -67,13 +64,13 @@ function Read-SingleKey {
 
 
 
-function Pause-AnyKey {
+function Wait-AnyKey {
     Write-Host ""
     Write-Host "Press any key to return..." -ForegroundColor DarkGray
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
 
-function Draw-Header {
+function Show-Header {
     Clear-Host
     Write-Host "==============================================" -ForegroundColor DarkCyan
     Write-Host (" " + ($Breadcrumb -join "  >  ")) -ForegroundColor Cyan
@@ -101,7 +98,7 @@ function Show-ActionResult {
         Write-Host "FAILED: $ActionName did not complete." -ForegroundColor Red
     }
     Write-Host "==============================================" -ForegroundColor DarkCyan
-    Pause-AnyKey
+    Wait-AnyKey
 }
 
 function Read-ValidatedNumber {
@@ -114,19 +111,19 @@ function Read-ValidatedNumber {
     while ($true) {
         Write-Host ""
         Write-Host $Prompt -ForegroundColor Yellow
-        $input = Read-Host
+        $userInput = Read-Host
 
-        if ([string]::IsNullOrWhiteSpace($input)) {
+        if ([string]::IsNullOrWhiteSpace($userInput)) {
             Write-Host "Invalid input: empty or whitespace." -ForegroundColor Red
             continue
         }
 
-        if ($input -notmatch '^\d+$') {
+        if ($userInput -notmatch '^\d+$') {
             Write-Host "Invalid input: numbers only." -ForegroundColor Red
             continue
         }
 
-        $value = [int]$input
+        $value = [int]$userInput
         if ($value -lt $Min -or $value -gt $Max) {
             Write-Host "Value must be between $Min and $Max." -ForegroundColor Red
             continue
@@ -184,7 +181,7 @@ function Uninstall-WindowsApp {
 # PAGE RENDERERS
 # =========================
 function Show-MainMenu {
-    Draw-Header
+    Show-Header
     Write-Host "Select any of the below options to begin.`n"
     Write-Host "[1] Registry QOL Changes" -ForegroundColor Green
     Write-Host "[2] Registry Shortcuts" -ForegroundColor Green
@@ -194,7 +191,7 @@ function Show-MainMenu {
 }
 
 function Show-RegistryQOL {
-    Draw-Header
+    Show-Header
     Write-Host "[1] Disable Windows Ads & Suggestions"
     Write-Host "[2] Disable Lock Screen Spotlight"
     Write-Host "[3] Enable Long File Paths"
@@ -206,7 +203,7 @@ function Show-RegistryQOL {
 }
 
 function Show-RegistryShortcuts {
-    Draw-Header
+    Show-Header
     Write-Host "[1] Add Take Ownership to Context Menu"
     Write-Host "[2] Add Open PowerShell Here"
     Write-Host "[3] Add Restart Explorer Shortcut"
@@ -216,7 +213,7 @@ function Show-RegistryShortcuts {
 }
 
 function Show-PasswordMenu {
-    Draw-Header
+    Show-Header
     Write-Host "Windows Password Configuration`n"
     Write-Host "[1] Change minimum password age (days)"
     Write-Host "[2] Change maximum password age (days)"
@@ -227,7 +224,7 @@ function Show-PasswordMenu {
 }
 
 function Show-UninstallProgramMenu {
-    Draw-Header
+    Show-Header
     Write-Host "Uninstall Windows Program`n"
     Write-Host "Enter the name of a built-in Windows app to remove."
     Write-Host "Examples: Get Help, Get Started, Game Bar, Xbox, People, Windows Backup"
@@ -255,7 +252,7 @@ try {
                     '2' { $LastError = $null; $CurrentPage = "RegistryShortcuts"; $Breadcrumb = @("Main Menu", "Registry Shortcuts") }
                     '3' { $LastError = $null; $CurrentPage = "Password"; $Breadcrumb = @("Main Menu", "Windows Password Configuration") }
                     '4' { $CurrentPage = "UninstallProgram"; $Breadcrumb = @("Main Menu", "Uninstall Windows Program") }
-                    '0' { exit }
+                    '0' { [Environment]::Exit(0) }
                     default { $LastError = "Invalid selection." }
                 }
             }
@@ -340,31 +337,31 @@ try {
             # =========================
             "UninstallProgram" {
                 Show-UninstallProgramMenu
-                $input = Read-Host "Program name (or 0 to return)"
+                $appName = Read-Host "Program name (or 0 to return)"
 
-                if ($input -eq "0") {
+                if ($appName -eq "0") {
                     $CurrentPage = "Main"
                     $Breadcrumb = @("Main Menu")
                 }
-                elseif ([string]::IsNullOrWhiteSpace($input)) {
+                elseif ([string]::IsNullOrWhiteSpace($appName)) {
                     $LastError = "You must enter a program name."
                 }
                 else {
                     try {
-                        $result = Uninstall-WindowsApp $input
+                        $result = Uninstall-WindowsApp $appName
 
                         if ($result.Success -and $result.Protected.Count -gt 0) {
-                            Show-ActionResult "Could not uninstall '$input'. Protected system app(s): $($result.Protected -join ', ')" $false
+                            Show-ActionResult "Could not uninstall '$appName'. Protected system app(s): $($result.Protected -join ', ')" $false
                         }
                         elseif ($result.Success) {
-                            Show-ActionResult "Uninstalled '$input'" $true
+                            Show-ActionResult "Uninstalled '$appName'" $true
                         }
                         else {
-                            Show-ActionResult "'$input' cannot be uninstalled (may be system-protected)" $false
+                            Show-ActionResult "'$appName' cannot be uninstalled (may be system-protected)" $false
                         }
                     }
                     catch {
-                        Show-ActionResult "Failed to uninstall '$input': $_" $false
+                        Show-ActionResult "Failed to uninstall '$appName': $_" $false
                     }
                 }
             }
@@ -378,7 +375,7 @@ catch {
     Clear-Host
     Write-Host "A fatal error occurred:" -ForegroundColor Red
     Write-Host $_ -ForegroundColor DarkRed
-    Pause-AnyKey
+    Wait-AnyKey
 }
 
 Clear-Host

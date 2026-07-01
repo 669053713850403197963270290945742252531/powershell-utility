@@ -20,19 +20,6 @@
         - Add God Mode shortcut
         - Add 'Restart Audio Service'
         - Add 'Empty Recycle Bin'
-- fix this script not being able to be ran from the file directly from file explorer when clicking "Run with PowerShell"? it requires to be ran with a separate .cmd script:
-```ps
-@echo off
-title Windows Config Tool
-powershell.exe -NoExit -ExecutionPolicy Bypass -File "%~dp0Windows Utility.ps1"
-pause
-```
-- 4 warnings from the Error Lens in the utility:
-    - 46: The cmdlet 'Pause-AnyKey' uses an unapproved verb.
-    - 52: The cmdlet 'Draw-Header' uses an unapproved verb.
-    - 93: The Variable 'input' is an automatic variable that is built into PowerShell, assigning to it might have undesired side effects. If assignment is not by design, please use a different name.
-    - 319: The Variable 'input' is an automatic variable that is built into PowerShell, assigning to it might have undesired side effects. If assignment is not by design, please use a different name.
-    
 option to:
 - create restore point using Windows Built-In System Restore Point
 - run advanced corruption diagnosis and automatically repair corrupted files (for issues such as gray screen when logging in)
