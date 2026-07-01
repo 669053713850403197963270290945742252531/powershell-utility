@@ -8,11 +8,6 @@ param(
 # =========================
 # SELF-RELAUNCH FOR "RUN WITH POWERSHELL" / DOUBLE-CLICK
 # =========================
-# Explorer's "Run with PowerShell" opens a window with no -NoExit, so it
-# vanishes the instant the script ends (or the instant execution policy
-# blocks it) before anything is visible. This relaunches the script in a
-# persistent window with the policy bypassed, so it works standalone
-# without a separate .cmd wrapper.
 if (-not $Relaunched -and $PSCommandPath) {
     $argList = @(
         '-NoLogo'
