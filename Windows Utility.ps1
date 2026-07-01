@@ -6,12 +6,9 @@ param(
 )
 
 # =========================
-# SELF-RELAUNCH FOR "RUN WITH POWERSHELL" / DOUBLE-CLICK
+# SELF-RELAUNCH FOR "RUN WITH POWERSHELL"
 # =========================
 if (-not $Relaunched -and $PSCommandPath) {
-    # Built as a single pre-formed string (not an array) so PowerShell
-    # doesn't try to re-quote an already-quoted element, which can cancel
-    # the quoting out and split a spaced path into two arguments.
     $argString = '-NoLogo -NoExit -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Relaunched'
     Start-Process -FilePath 'powershell.exe' -ArgumentList $argString
     exit
@@ -26,23 +23,25 @@ $CurrentPage = "Main"
 $Breadcrumb = @("Main Menu")
 $LastError = $null
 $Running = $true
+$SelectedQOLKey = $null
+$SelectedShortcutKey = $null
 
 $RegistryQOLNames = @{
-    '1' = "Disable Windows Ads & Suggestions"
-    '2' = "Disable Lock Screen Spotlight"
-    '3' = "Enable Long File Paths"
-    '4' = "Disable Game Bar"
-    '5' = "Disable Startup Delay"
-    '6' = "Enable Verbose Boot Messages"
-    '7' = "Disable Telemetry"
+    '1' = "Windows Ads & Suggestions"
+    '2' = "Lock Screen Spotlight"
+    '3' = "Long File Paths"
+    '4' = "Game Bar"
+    '5' = "Startup Delay"
+    '6' = "Verbose Boot Messages"
+    '7' = "Telemetry"
 }
 
 $RegistryShortcutNames = @{
-    '1' = "Add Take Ownership to Context Menu"
-    '2' = "Add Open PowerShell Here"
-    '3' = "Add Restart Explorer Shortcut"
-    '4' = "Add Clear Clipboard Shortcut"
-    '5' = "Add Safe Mode Boot Option"
+    '1' = "Take Ownership to Context Menu"
+    '2' = "Open PowerShell Here"
+    '3' = "Restart Explorer Shortcut"
+    '4' = "Clear Clipboard Shortcut"
+    '5' = "Safe Mode Boot Option"
 }
 
 # =========================
@@ -176,6 +175,98 @@ function Uninstall-WindowsApp {
     return @{ Success = $removedSomething; Protected = $protectedApps }
 }
 
+function Test-IsAdmin {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function New-SystemRestorePointElevated {
+    $resultFile = Join-Path $env:TEMP "WinUtil_RestorePointResult_$([guid]::NewGuid().ToString('N')).json"
+
+    $elevatedCommand = @"
+try {
+    Checkpoint-Computer -Description 'Windows Utility Restore Point' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+    @{ Success = `$true; Error = `$null } | ConvertTo-Json | Set-Content -Path '$resultFile' -Encoding UTF8
+}
+catch {
+    @{ Success = `$false; Error = `$_.Exception.Message } | ConvertTo-Json | Set-Content -Path '$resultFile' -Encoding UTF8
+}
+"@
+
+    $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($elevatedCommand))
+
+    try {
+        $proc = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $encodedCommand" `
+            -Verb RunAs -PassThru -ErrorAction Stop
+    }
+    catch {
+        # Most commonly hit when the user clicks "No" on the UAC prompt
+        return @{ Success = $false; Error = "Elevation was cancelled or failed: $($_.Exception.Message)" }
+    }
+
+    $percent = 0
+    while (-not $proc.HasExited) {
+        $percent = [Math]::Min($percent + 5, 90)
+        Write-Progress -Activity "Creating System Restore Point" -Status "This can take a minute or two, please wait..." -PercentComplete $percent
+        Start-Sleep -Milliseconds 500
+    }
+
+    Write-Progress -Activity "Creating System Restore Point" -Status "Finalizing..." -PercentComplete 100
+    Start-Sleep -Milliseconds 300
+    Write-Progress -Activity "Creating System Restore Point" -Completed
+
+    if (Test-Path $resultFile) {
+        $resultJson = Get-Content -Path $resultFile -Raw | ConvertFrom-Json
+        Remove-Item -Path $resultFile -Force -ErrorAction SilentlyContinue
+        return @{ Success = $resultJson.Success; Error = $resultJson.Error }
+    }
+
+    return @{ Success = $false; Error = "Elevated process did not return a result (exit code $($proc.ExitCode))." }
+}
+
+function New-SystemRestorePoint {
+    Clear-Host
+    Write-Host "==============================================" -ForegroundColor DarkCyan
+    Write-Host " Creating System Restore Point" -ForegroundColor Cyan
+    Write-Host "==============================================" -ForegroundColor DarkCyan
+    Write-Host ""
+
+    if (-not (Test-IsAdmin)) {
+        Write-Host "Administrator privileges are required for this action." -ForegroundColor Yellow
+        Write-Host "Requesting elevation - accept the UAC prompt to continue..." -ForegroundColor Yellow
+        Write-Host ""
+        return New-SystemRestorePointElevated
+    }
+
+    $job = Start-Job -ScriptBlock {
+        Checkpoint-Computer -Description "Windows Utility Restore Point" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+    }
+
+    $percent = 0
+    while ($job.State -eq 'Running') {
+        $percent = [Math]::Min($percent + 5, 90)
+        Write-Progress -Activity "Creating System Restore Point" -Status "This can take a minute or two, please wait..." -PercentComplete $percent
+        Start-Sleep -Milliseconds 500
+    }
+
+    Write-Progress -Activity "Creating System Restore Point" -Status "Finalizing..." -PercentComplete 100
+    Start-Sleep -Milliseconds 300
+    Write-Progress -Activity "Creating System Restore Point" -Completed
+
+    $errorMessage = $null
+    try {
+        Receive-Job -Job $job -ErrorAction Stop | Out-Null
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+    }
+    Remove-Job -Job $job -Force
+
+    return @{ Success = [string]::IsNullOrEmpty($errorMessage); Error = $errorMessage }
+}
+
 
 # =========================
 # PAGE RENDERERS
@@ -187,28 +278,43 @@ function Show-MainMenu {
     Write-Host "[2] Registry Shortcuts" -ForegroundColor Green
     Write-Host "[3] Windows Password Configuration" -ForegroundColor Green
     Write-Host "[4] Uninstall Windows Program" -ForegroundColor Green
+    Write-Host "[5] Create System Restore Point" -ForegroundColor Green
     Write-Host "[0] Exit" -ForegroundColor DarkRed
 }
 
 function Show-RegistryQOL {
     Show-Header
-    Write-Host "[1] Disable Windows Ads & Suggestions"
-    Write-Host "[2] Disable Lock Screen Spotlight"
-    Write-Host "[3] Enable Long File Paths"
-    Write-Host "[4] Disable Game Bar"
-    Write-Host "[5] Disable Startup Delay"
-    Write-Host "[6] Enable Verbose Boot Messages"
-    Write-Host "[7] Disable Telemetry"
+    Write-Host "[1] Toggle Windows Ads & Suggestions"
+    Write-Host "[2] Toggle Lock Screen Spotlight"
+    Write-Host "[3] Toggle Long File Paths"
+    Write-Host "[4] Toggle Game Bar"
+    Write-Host "[5] Toggle Startup Delay"
+    Write-Host "[6] Toggle Verbose Boot Messages"
+    Write-Host "[7] Toggle Telemetry"
+    Write-Host "[0] Return"
+}
+
+function Show-RegistryQOLToggle {
+    Show-Header
+    Write-Host "[1] Enable"
+    Write-Host "[2] Disable"
     Write-Host "[0] Return"
 }
 
 function Show-RegistryShortcuts {
     Show-Header
-    Write-Host "[1] Add Take Ownership to Context Menu"
-    Write-Host "[2] Add Open PowerShell Here"
-    Write-Host "[3] Add Restart Explorer Shortcut"
-    Write-Host "[4] Add Clear Clipboard Shortcut"
-    Write-Host "[5] Add Safe Mode Boot Option"
+    Write-Host "[1] Toggle Take Ownership to Context Menu"
+    Write-Host "[2] Toggle Open PowerShell Here"
+    Write-Host "[3] Toggle Restart Explorer Shortcut"
+    Write-Host "[4] Toggle Clear Clipboard Shortcut"
+    Write-Host "[5] Toggle Safe Mode Boot Option"
+    Write-Host "[0] Return"
+}
+
+function Show-RegistryShortcutToggle {
+    Show-Header
+    Write-Host "[1] Add"
+    Write-Host "[2] Remove"
     Write-Host "[0] Return"
 }
 
@@ -232,6 +338,15 @@ function Show-UninstallProgramMenu {
     Write-Host "[0] Return"
 }
 
+function Show-SystemRestoreMenu {
+    Show-Header
+    Write-Host "Creates a Windows System Restore Point using the built-in System`n"
+    Write-Host "Restore feature. Requires Administrator privileges and System`n"
+    Write-Host "Restore to be enabled on the system drive.`n"
+    Write-Host "[1] Create Restore Point" -ForegroundColor Green
+    Write-Host "[0] Return"
+}
+
 # =========================
 # MAIN LOOP
 # =========================
@@ -252,6 +367,7 @@ try {
                     '2' { $LastError = $null; $CurrentPage = "RegistryShortcuts"; $Breadcrumb = @("Main Menu", "Registry Shortcuts") }
                     '3' { $LastError = $null; $CurrentPage = "Password"; $Breadcrumb = @("Main Menu", "Windows Password Configuration") }
                     '4' { $CurrentPage = "UninstallProgram"; $Breadcrumb = @("Main Menu", "Uninstall Windows Program") }
+                    '5' { $LastError = $null; $CurrentPage = "SystemRestore"; $Breadcrumb = @("Main Menu", "Create System Restore Point") }
                     '0' { [Environment]::Exit(0) }
                     default { $LastError = "Invalid selection." }
                 }
@@ -272,13 +388,47 @@ try {
                 }
                 elseif ($RegistryQOLNames.ContainsKey($choice)) {
                     $LastError = $null
-                    $name = "[${choice}] $($RegistryQOLNames[$choice])"
-                    Show-ActionResult $name $true
+                    $SelectedQOLKey = $choice
+                    $CurrentPage = "RegistryQOLToggle"
+                    $Breadcrumb = @("Main Menu", "Registry QOL Changes", $RegistryQOLNames[$choice])
                 }
                 else {
                     $LastError = "Invalid selection."
                 }
 
+            }
+
+
+            # =========================
+            # REGISTRY QOL TOGGLE
+            # =========================
+            "RegistryQOLToggle" {
+                Show-RegistryQOLToggle
+                $choice = Read-SingleKey
+                $choice = [string]$choice.Trim()
+
+                switch ($choice) {
+                    '1' {
+                        $LastError = $null
+                        $name = "Enable $($RegistryQOLNames[$SelectedQOLKey])"
+                        Show-ActionResult $name $true
+                        $CurrentPage = "RegistryQOL"
+                        $Breadcrumb = @("Main Menu", "Registry QOL Changes")
+                    }
+                    '2' {
+                        $LastError = $null
+                        $name = "Disable $($RegistryQOLNames[$SelectedQOLKey])"
+                        Show-ActionResult $name $true
+                        $CurrentPage = "RegistryQOL"
+                        $Breadcrumb = @("Main Menu", "Registry QOL Changes")
+                    }
+                    '0' {
+                        $LastError = $null
+                        $CurrentPage = "RegistryQOL"
+                        $Breadcrumb = @("Main Menu", "Registry QOL Changes")
+                    }
+                    default { $LastError = "Invalid selection." }
+                }
             }
 
 
@@ -297,11 +447,45 @@ try {
                 }
                 elseif ($RegistryShortcutNames.ContainsKey($choice)) {
                     $LastError = $null
-                    $name = "[${choice}] $($RegistryShortcutNames[$choice])"
-                    Show-ActionResult $name $true
+                    $SelectedShortcutKey = $choice
+                    $CurrentPage = "RegistryShortcutToggle"
+                    $Breadcrumb = @("Main Menu", "Registry Shortcuts", $RegistryShortcutNames[$choice])
                 }
                 else {
                     $LastError = "Invalid selection."
+                }
+            }
+
+
+            # =========================
+            # REGISTRY SHORTCUT TOGGLE
+            # =========================
+            "RegistryShortcutToggle" {
+                Show-RegistryShortcutToggle
+                $choice = Read-SingleKey
+                $choice = [string]$choice.Trim()
+
+                switch ($choice) {
+                    '1' {
+                        $LastError = $null
+                        $name = "Add $($RegistryShortcutNames[$SelectedShortcutKey])"
+                        Show-ActionResult $name $true
+                        $CurrentPage = "RegistryShortcuts"
+                        $Breadcrumb = @("Main Menu", "Registry Shortcuts")
+                    }
+                    '2' {
+                        $LastError = $null
+                        $name = "Remove $($RegistryShortcutNames[$SelectedShortcutKey])"
+                        Show-ActionResult $name $true
+                        $CurrentPage = "RegistryShortcuts"
+                        $Breadcrumb = @("Main Menu", "Registry Shortcuts")
+                    }
+                    '0' {
+                        $LastError = $null
+                        $CurrentPage = "RegistryShortcuts"
+                        $Breadcrumb = @("Main Menu", "Registry Shortcuts")
+                    }
+                    default { $LastError = "Invalid selection." }
                 }
             }
 
@@ -363,6 +547,36 @@ try {
                     catch {
                         Show-ActionResult "Failed to uninstall '$appName': $_" $false
                     }
+                }
+            }
+
+            # =========================
+            # SYSTEM RESTORE POINT
+            # =========================
+            "SystemRestore" {
+                Show-SystemRestoreMenu
+                $choice = Read-SingleKey
+                $choice = [string]$choice.Trim()
+
+                switch ($choice) {
+                    '1' {
+                        $LastError = $null
+                        $result = New-SystemRestorePoint
+                        if ($result.Success) {
+                            Show-ActionResult "Create System Restore Point" $true
+                        }
+                        else {
+                            Show-ActionResult "Create System Restore Point ($($result.Error))" $false
+                        }
+                        $CurrentPage = "Main"
+                        $Breadcrumb = @("Main Menu")
+                    }
+                    '0' {
+                        $LastError = $null
+                        $CurrentPage = "Main"
+                        $Breadcrumb = @("Main Menu")
+                    }
+                    default { $LastError = "Invalid selection." }
                 }
             }
 
